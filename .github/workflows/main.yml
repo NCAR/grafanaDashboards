@@ -20,5 +20,5 @@ jobs:
       - name: Run a multi-line script
         env:
           GRAFANA_SERVER: ${{ secrets.GRAFANA_SERVER }}
-          GRAFANA_API_KEY: ${{ GRAFANA_API_KEY }}
+          GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
         run: cd $GITHUB_WORKSPACE && python3 main.py
