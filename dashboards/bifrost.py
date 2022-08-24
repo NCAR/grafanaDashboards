@@ -1,35 +1,13 @@
+import utils
+
 from grafanalib.core import (
     Dashboard, TimeSeries, RowPanel,
     SqlTarget, GridPos, Time, PERCENT_FORMAT, PERCENT_UNIT_FORMAT
 )
 
 DATASOURCE="BifrostTS"
-INTERVAL=Time("now-3h", "now")
-WIDTH=24
 NUM_SPINES=6
 NUM_LEAFS=10
-
-def getTimeSeries(title, query, gridPos, unit='', **kwargs):
-    return TimeSeries(
-        title = title,
-        dataSource=DATASOURCE,
-        maxDataPoints=1000,
-        targets=[
-            SqlTarget(
-                rawSql=query,
-                refId="A",
-            ),
-        ],
-        unit=unit,
-        gridPos=gridPos,
-        **kwargs
-    )
-
-def getTimeSeriesWithLegend(title, query, gridPos, unit=''):
-    return getTimeSeries(title, query, gridPos, unit,
-        legendPlacement="right",
-        legendCalcs=["min","mean","max"],
-        legendDisplayMode="table")
 
 
 def overallBandwidth():
@@ -53,14 +31,16 @@ FROM (
 GROUP BY 1, hostname, 2
 ORDER BY 1,2
 """
-    return (getTimeSeriesWithLegend(query=bandwidthQuery.format("InOctets"),
+    return (utils.getTimeSeriesWithLegend(queries=[SqlTarget(rawSql=bandwidthQuery.format("InOctets"))],
                                     title="Ingress",
-                                    gridPos=GridPos(h=8, w=WIDTH/2, x=0, y=0),
-                                    unit=PERCENT_FORMAT),
-            getTimeSeriesWithLegend(title="Egress",
-                                    query=bandwidthQuery.format("OutOctets"),
-                                    gridPos=GridPos(h=8, w=WIDTH/2, x=1 + (WIDTH/2), y=0),
-                                    unit=PERCENT_FORMAT)
+                                    gridPos=GridPos(h=8, w=utils.WIDTH/2, x=0, y=0),
+                                    unit=PERCENT_FORMAT,
+                                    datasource=DATASOURCE),
+            utils.getTimeSeriesWithLegend(title="Egress",
+                                    queries=[SqlTarget(rawSql=bandwidthQuery.format("OutOctets"))],
+                                    gridPos=GridPos(h=8, w=utils.WIDTH/2, x=1 + (utils.WIDTH/2), y=0),
+                                    unit=PERCENT_FORMAT,
+                                    datasource=DATASOURCE)
           )
 
 def errorMetrics():
@@ -84,18 +64,22 @@ WHERE
   $__timeFilter(time)
 GROUP BY 1, hostname,2
 ORDER BY 1,2'''
-    return (getTimeSeries(query=errorsQuery.replace("{}","In"),
+    return (utils.getTimeSeries(queries=[SqlTarget(rawSql=errorsQuery.replace("{}","In"))],
                           title="InErrors",
-                          gridPos=GridPos(h=8, w=WIDTH/4,x=0,y=10)),
-            getTimeSeries(query=discardsQuery.replace("{}","In"),
+                          gridPos=GridPos(h=8, w=utils.WIDTH/4,x=0,y=10),
+                          datasource=DATASOURCE),
+            utils.getTimeSeries(queries=[SqlTarget(rawSql=discardsQuery.replace("{}","In"))],
                           title="InDiscards",
-                          gridPos=GridPos(h=8,w=WIDTH/4,x=WIDTH/4,y=10)),
-            getTimeSeries(query=errorsQuery.replace("{}","Out"),
+                          gridPos=GridPos(h=8,w=utils.WIDTH/4,x=utils.WIDTH/4,y=10),
+                          datasource=DATASOURCE),
+            utils.getTimeSeries(queries=[SqlTarget(rawSql=errorsQuery.replace("{}","Out"))],
                           title="OutErrors",
-                          gridPos=GridPos(h=8, w=WIDTH/4,x=WIDTH/2,y=10)),
-            getTimeSeries(query=discardsQuery.replace("{}","Out"),
+                          gridPos=GridPos(h=8, w=utils.WIDTH/4,x=utils.WIDTH/2,y=10),
+                          datasource=DATASOURCE),
+            utils.getTimeSeries(queries=[SqlTarget(rawSql=discardsQuery.replace("{}","Out"))],
                           title="OutDiscards",
-                          gridPos=GridPos(h=8,w=WIDTH/4,x=3*WIDTH/4,y=10))
+                          gridPos=GridPos(h=8,w=utils.WIDTH/4,x=3*utils.WIDTH/4,y=10),
+                          datasource=DATASOURCE)
            )
 
 def switchMetrics(switch):
@@ -120,8 +104,8 @@ FROM (
 ) AS myquery
 GROUP BY 1, "myLabel", 2
 ORDER BY 1,2'''
-    return (getTimeSeriesWithLegend(query=query.format("In").replace("switch",switch), title=f"{switch} Ingress", gridPos=GridPos(h=8, w=WIDTH/2, x=0, y=0), unit=PERCENT_UNIT_FORMAT),
-            getTimeSeriesWithLegend(query=query.format("Out").replace("switch",switch), title=f"{switch} Egress", gridPos=GridPos(h=8, w=WIDTH/2, x=WIDTH/2, y=0), unit=PERCENT_UNIT_FORMAT)
+    return (utils.getTimeSeriesWithLegend(queries=[SqlTarget(rawSql=query.format("In").replace("switch",switch))], title=f"{switch} Ingress", gridPos=GridPos(h=8, w=utils.WIDTH/2, x=0, y=0), unit=PERCENT_UNIT_FORMAT, datasource=DATASOURCE),
+            utils.getTimeSeriesWithLegend(queries=[SqlTarget(rawSql=query.format("Out").replace("switch",switch))], title=f"{switch} Egress", gridPos=GridPos(h=8, w=utils.WIDTH/2, x=utils.WIDTH/2, y=0), unit=PERCENT_UNIT_FORMAT, datasource=DATASOURCE)
            )
 
 
@@ -162,7 +146,7 @@ def dashboard():
     return Dashboard(
         title="Bifrost",
         description="bifrost dashboard",
-        time=INTERVAL,
+        time=utils.INTERVAL,
         refresh=None,
         tags=[
             'generated',
