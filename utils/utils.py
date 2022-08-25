@@ -5,6 +5,7 @@ from grafanalib.core import (
 
 INTERVAL=Time("now-8h", "now")
 WIDTH=24
+HEIGHT=8
 
 def getTimeSeries(title, queries, gridPos, datasource, unit='', **kwargs):
     return TimeSeries(
@@ -14,6 +15,7 @@ def getTimeSeries(title, queries, gridPos, datasource, unit='', **kwargs):
         targets=queries,
         unit=unit,
         gridPos=gridPos,
+        interval="5m",
         **kwargs
     )
 
