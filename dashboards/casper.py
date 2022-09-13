@@ -42,11 +42,40 @@ def availUtil():
                                          )
            )
 def queSize():
-    return utils.getTimeSeries(queries=[SqlTarget(rawSql=buildQuery(select="""avg(total_jobs::integer) as "que", que as q""", groupby=", q",metric="pbs_statque", where="AND total_jobs::integer > 0"))],
-                                         title="Total Jobs By Que",
+    query = SqlTarget(rawSql="""
+SELECT
+  $__timeGroupAlias("time",$__interval),
+  sum(transit) as transit,
+  sum(queued) as queued,
+  sum(held) as held,
+  sum(waiting) as waiting,
+  sum(running) as running,
+  sum(exiting) as exiting,
+  sum(begun) as begun
+  FROM (
+    SELECT
+    time,
+    que,
+    split_part(split_part(state_count, ' ', 1), ':', 2)::integer as transit,
+    split_part(split_part(state_count, ' ', 2), ':', 2)::integer as queued,
+    split_part(split_part(state_count, ' ', 3), ':', 2)::integer as held,
+    split_part(split_part(state_count, ' ', 4), ':', 2)::integer as waiting,
+    split_part(split_part(state_count, ' ', 5), ':', 2)::integer as running,
+    split_part(split_part(state_count, ' ', 6), ':', 2)::integer as exiting,
+    split_part(split_part(state_count, ' ', 7), ':', 2)::integer as begun
+  FROM pbs_statque
+  WHERE
+    $__timeFilter("time") AND total_jobs::integer > 0
+  ) myQuery
+GROUP BY time
+ORDER BY time
+""")
+    return utils.getTimeSeries(queries=[query],
+                                         title="Job states",
                                          gridPos=GridPos(h=8, w=utils.WIDTH/2, x=0, y=utils.HEIGHT),
                                          datasource=DATASOURCE
                                          )
+
 def badNodes():
     return  Table(
         maxDataPoints=1000,
@@ -112,7 +141,7 @@ def gpu():
 def cpu():
     return utils.getTimeSeries(queries=[
         SqlTarget(rawSql=buildQuery(
-           select="100. * avg(resources_assigned_ncpus::float/resources_available_ncpus::float) AS allocated"
+           select="100. * sum(resources_assigned_ncpus::float)/sum(resources_available_ncpus::float) AS allocated"
            )),
         SqlTarget(rawSql=buildQuery(
            select="100 - avg(usage_idle) AS used",
@@ -127,7 +156,7 @@ def cpu():
     )
 
 def mem():
-    return (utils.getTimeSeries(queries=[
+    return utils.getTimeSeries(queries=[
         SqlTarget(rawSql=buildQuery(
            select="100. * avg(resources_assigned_mem::float/resources_available_mem::float) as allocated",
            where=" AND resources_assigned_mem ~ '^\\d+$'",
@@ -142,24 +171,24 @@ def mem():
         unit=PERCENT_FORMAT,
         gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/3, x=2*utils.WIDTH/3, y=0),
         datasource=DATASOURCE
-    ),
-    utils.getTimeSeries(queries=[
-        SqlTarget(rawSql="""SELECT
-      time,
-      substring(path from '\d+') as jobid,
-      avg("memory.max_usage_in_bytes"::float/"memory.limit_in_bytes"::float) AS "max_used",
-      avg("memory.usage_in_bytes"::float/"memory.limit_in_bytes"::float) AS "current"
-    FROM cgroup
-    WHERE
-      $__timeFilter("time")
-    GROUP BY time, jobid
-    ORDER BY time"""),
-        ],
-        title="WIP Memory used by job",
-        unit=PERCENT_UNIT_FORMAT,
-        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/3, x=2*utils.WIDTH/3, y=utils.HEIGHT),
-        datasource=DATASOURCE
-    ))
+    )
+    #utils.getTimeSeries(queries=[
+    #    SqlTarget(rawSql="""SELECT
+    #  time,
+    #  substring(path from '\d+') as jobid,
+    #  avg("memory.max_usage_in_bytes"::float/"memory.limit_in_bytes"::float) AS "max_used",
+    #  avg("memory.usage_in_bytes"::float/"memory.limit_in_bytes"::float) AS "current"
+    #FROM cgroup
+    #WHERE
+    #  $__timeFilter("time")
+    #GROUP BY time, jobid
+    #ORDER BY time"""),
+    #    ],
+    #    title="WIP Memory used by job",
+    #    unit=PERCENT_UNIT_FORMAT,
+    #    gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/3, x=2*utils.WIDTH/3, y=utils.HEIGHT),
+    #    datasource=DATASOURCE
+    #)
 
 def dashboard():
     overview = RowPanel(
@@ -179,7 +208,7 @@ def dashboard():
     resources = RowPanel(
         title = "Compute",
         collapsed = True,
-        panels=[gpu(), cpu(), *mem()],
+        panels=[gpu(), cpu(), mem()],
         gridPos=GridPos(h=2*utils.HEIGHT, w=utils.WIDTH, x=0, y=2*utils.HEIGHT)
     )
 
@@ -187,7 +216,7 @@ def dashboard():
         title="Casper",
         description="Casper dashboard",
         time=utils.INTERVAL,
-        refresh='1m',
+        refresh='10m',
         sharedCrosshair=True,
         tags=[
             'generated',
