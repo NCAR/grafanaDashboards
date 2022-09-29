@@ -8,6 +8,8 @@ from grafanalib.core import (
 DATASOURCE="CasperTS"
 
 def buildQuery(select, groupby="", metric="pbs_stathost", where=""):
+    if groupby != "" and not groupby.startswith(","):
+        groupby = ","+groupby
     return f"""SELECT
   $__timeGroupAlias("time",$__interval),
   {select}
@@ -190,6 +192,32 @@ def mem():
     #    datasource=DATASOURCE
     #)
 
+def disk():
+#"""SELECT
+#  $__timeGroupAlias("time",$__interval),
+#  avg(used_percent),
+#  host,
+#  path
+#FROM disk
+#WHERE
+#  $__timeFilter("time")
+#GROUP BY 1, host, path
+#ORDER BY 1"""
+    return utils.getTimeSeries(queries=[
+        SqlTarget(rawSql=buildQuery(
+           select="avg(used_percent), host, path",
+           metric="disk",
+           groupby="host, path"
+           ),
+        ),
+        ],
+        title="Disk Used",
+        unit=PERCENT_FORMAT,
+        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH, x=0, y=0),
+        datasource=DATASOURCE
+    )
+
+
 def dashboard():
     overview = RowPanel(
         title = "Overview",
@@ -212,6 +240,13 @@ def dashboard():
         gridPos=GridPos(h=2*utils.HEIGHT, w=utils.WIDTH, x=0, y=2*utils.HEIGHT)
     )
 
+    infra = RowPanel(
+        title = "Infra",
+        collapsed = True,
+        panels=[disk()],
+        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH, x=0, y=3*utils.HEIGHT)
+    )
+
     return Dashboard(
         title="Casper",
         description="Casper dashboard",
@@ -226,6 +261,7 @@ def dashboard():
         panels=[ 
             overview,
             login,
-            resources
+            resources,
+            infra
         ],
     ).auto_panel_ids()
