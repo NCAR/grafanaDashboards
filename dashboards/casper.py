@@ -150,7 +150,7 @@ def mem():
     return utils.getTimeSeries(queries=[
         SqlTarget(rawSql=buildQuery(
            select="100. * avg(resources_assigned_mem::float/resources_available_mem::float) as allocated",
-           where=" AND resources_assigned_mem ~ '^\\d+$'",
+           where="AND resources_assigned_mem ~ '^\\d+$'",
            )),
         SqlTarget(rawSql=buildQuery(
            select="avg(used_percent) as used",
