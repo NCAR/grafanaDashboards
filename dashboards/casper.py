@@ -215,7 +215,22 @@ def disk():
         ],
         title="Disk Used",
         unit=PERCENT_FORMAT,
-        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/3, x=2*utils.WIDTH/3, y=0),
+        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH, x=0, y=utils.HEIGHT),
+        datasource=DATASOURCE
+    )
+
+def infra_cpu():
+    return utils.getTimeSeries(queries=[
+        SqlTarget(rawSql=buildQuery(
+           select="100 - avg(usage_idle) AS used, host",
+           metric="cpu",
+           groupby="host",
+           where="AND host !~ '^(crhtc\d\d|casper\d\d)$'"
+        ))
+        ],
+        title="CPU Used",
+        unit=PERCENT_FORMAT,
+        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/3, x=utils.WIDTH/3, y=0),
         datasource=DATASOURCE
     )
 
@@ -240,7 +255,7 @@ def infra_mem():
         ],
         title="Mem Used",
         unit=PERCENT_FORMAT,
-        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/3, x=utils.WIDTH/3, y=0),
+        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/3, x=2*utils.WIDTH/3, y=0),
         datasource=DATASOURCE
     )
 
@@ -263,8 +278,8 @@ def dashboard():
     infra = RowPanel(
         title = "Infra",
         collapsed = True,
-        panels=[disk(), users(), infra_mem()],
-        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH, x=0, y=3*utils.HEIGHT)
+        panels=[users(), infra_mem(), infra_cpu(), disk()],
+        gridPos=GridPos(h=2*utils.HEIGHT, w=utils.WIDTH, x=0, y=4*utils.HEIGHT)
     )
 
     return Dashboard(
