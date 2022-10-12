@@ -10,6 +10,8 @@ DATASOURCE="CasperTS"
 def buildQuery(select, groupby="", metric="pbs_stathost", where=""):
     if groupby != "" and not groupby.startswith(","):
         groupby = ","+groupby
+    if where != "" and not where.startswith("AND"):
+        where = "AND "+where
     return f"""SELECT
   $__timeGroupAlias("time",$__interval),
   {select}
@@ -104,19 +106,6 @@ WHERE
         gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/2, x=utils.WIDTH/2, y=utils.HEIGHT)
     )
 
-def users():
-    return utils.getTimeSeries(queries=[
-        SqlTarget(rawSql=buildQuery(
-            select="avg(n_users), host",
-            metric="system",
-            where="AND host ~ '^casper-login\d$'",
-            groupby= ", host",
-        ))],
-        title="Users logged in",
-        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH, x=0, y=0),
-        datasource=DATASOURCE
-    )
-
 def gpu():
     return utils.getTimeSeries(queries=[
         SqlTarget(rawSql=buildQuery(
@@ -192,6 +181,19 @@ def mem():
     #    datasource=DATASOURCE
     #)
 
+def users():
+    return utils.getTimeSeries(queries=[
+        SqlTarget(rawSql=buildQuery(
+            select="avg(n_users), host",
+            metric="system",
+            where="AND host ~ '^casper-login\d$'",
+            groupby= ", host",
+        ))],
+        title="Users logged in",
+        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/3, x=0, y=0),
+        datasource=DATASOURCE
+    )
+
 def disk():
 #"""SELECT
 #  $__timeGroupAlias("time",$__interval),
@@ -213,7 +215,32 @@ def disk():
         ],
         title="Disk Used",
         unit=PERCENT_FORMAT,
-        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH, x=0, y=0),
+        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/3, x=2*utils.WIDTH/3, y=0),
+        datasource=DATASOURCE
+    )
+
+def infra_mem():
+#"""SELECT
+#  $__timeGroupAlias("time",$__interval),
+#  avg(used_percent) as used,
+#  host
+#FROM mem
+#WHERE
+#  $__timeFilter("time") AND host !~ '^(crhtc\d\d|casper\d\d)$'
+#GROUP BY 1, host
+#ORDER BY 1"""
+    return utils.getTimeSeries(queries=[
+        SqlTarget(rawSql=buildQuery(
+            select="avg(used_percent) as used, host",
+            metric="mem",
+            groupby= "host",
+            where="host !~ '^(crhtc\d\d|casper\d\d)$'",
+            ),
+        ),
+        ],
+        title="Mem Used",
+        unit=PERCENT_FORMAT,
+        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/3, x=utils.WIDTH/3, y=0),
         datasource=DATASOURCE
     )
 
@@ -226,13 +253,6 @@ def dashboard():
         gridPos=GridPos(h=2*utils.HEIGHT, w=utils.WIDTH, x=0, y=0)
     )
 
-    login = RowPanel(
-        title = "login",
-        collapsed = True,
-        panels = [users()],
-        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH, x=0, y=utils.HEIGHT)
-    )
-
     resources = RowPanel(
         title = "Compute",
         collapsed = True,
@@ -243,7 +263,7 @@ def dashboard():
     infra = RowPanel(
         title = "Infra",
         collapsed = True,
-        panels=[disk()],
+        panels=[disk(), users(), infra_mem()],
         gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH, x=0, y=3*utils.HEIGHT)
     )
 
@@ -260,7 +280,6 @@ def dashboard():
         timezone="browser",
         panels=[ 
             overview,
-            login,
             resources,
             infra
         ],
