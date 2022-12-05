@@ -24,11 +24,24 @@ ORDER BY 1
 
 
 def availUtil():
-    availSelect = """avg(CASE when state~* '(free|resv|job)' THEN 1. ELSE 0. END) as "Avail" """
-    utilSelect = """sum(CASE when jobs!='' THEN 1. ELSE 0. END)/count(state) as "Util" """
+    QUERY='''SELECT
+    date_trunc('day', myquery.mytime) AS "date",
+    avg(metric) as metric
+FROM
+    (SELECT time_bucket_gapfill('10 minute', time, '{start}', '{end}') as mytime,
+    COALESCE({select}, 0) AS metric
+    FROM pbs_stathost
+    WHERE time BETWEEN '{start}' and '{end}'
+    GROUP BY mytime
+    ) as myquery
+GROUP BY "date"
+ORDER BY "date";
+'''
+    util = QUERY.format(start=start, end=end, select='''sum(CASE when jobs!='' THEN 1. ELSE 0. END)/count(state)''')
+    avail = QUERY.format(start=start, end=end, select='''avg(CASE when state ~* '(free|resv|job)' THEN 1. ELSE 0. END)''') 
     return (utils.getTimeSeriesWithLegend(queries=[
-                                                  SqlTarget(rawSql=buildQuery(availSelect)),
-                                                  SqlTarget(rawSql=buildQuery(utilSelect))
+                                                  SqlTarget(rawSql=avail),
+                                                  SqlTarget(rawSql=util)
                                                  ],
                                          title="Utilizatation and Availability",
                                          gridPos=GridPos(h=8, w=utils.WIDTH/2, x=0, y=0),
