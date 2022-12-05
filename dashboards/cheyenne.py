@@ -5,7 +5,7 @@ from grafanalib.core import (
     SqlTarget, GridPos, Time, PERCENT_FORMAT, PERCENT_UNIT_FORMAT
 )
 
-DATASOURCE="CasperTS"
+DATASOURCE="CheyenneTS"
 
 def buildQuery(select, groupby="", metric="pbs_stathost", where=""):
     if groupby != "" and not groupby.startswith(","):
@@ -37,25 +37,8 @@ FROM
 GROUP BY "time"
 ORDER BY "time";
 '''
-    gpuQuery='''SELECT
-    myquery.mytime AS "time",
-    avg(metric) as {metric},
-    resources_available_gpu_model
-FROM
-    (SELECT time_bucket_gapfill('1 minute', time, '${{__from:date}}', '${{__to:date}}') as mytime,
-    COALESCE({select}, 0) AS metric,
-    resources_available_gpu_model
-    FROM pbs_stathost
-    WHERE time BETWEEN '${{__from:date}}' and '${{__to:date}}'
-    GROUP BY mytime, resources_available_gpu_model
-    ) as myquery
-GROUP BY "time", resources_available_gpu_model
-ORDER BY "time";
-'''
     util = query.format(metric='util', select='''sum(CASE when jobs!='' THEN 1. ELSE 0. END)/count(state)''')
     avail = query.format(metric='avail', select='''avg(CASE when state ~* '(free|resv|job)' THEN 1. ELSE 0. END)''') 
-    utilgpu = gpuQuery.format(metric='util', select='''sum(CASE when jobs!='' THEN 1. ELSE 0. END)/count(state)''')
-    availgpu = gpuQuery.format(metric='avail', select='''avg(CASE when state ~* '(free|resv|job)' THEN 1. ELSE 0. END)''') 
     return (utils.getTimeSeriesWithLegend(queries=[
                                                   SqlTarget(rawSql=avail),
                                                   SqlTarget(rawSql=util)
@@ -64,17 +47,9 @@ ORDER BY "time";
                                          gridPos=GridPos(h=8, w=utils.WIDTH/2, x=0, y=0),
                                          unit=PERCENT_UNIT_FORMAT,
                                          datasource=DATASOURCE
-                                         ),
-            utils.getTimeSeriesWithLegend(queries=[
-                                                  SqlTarget(rawSql=availgpu),
-                                                  SqlTarget(rawSql=utilgpu)
-                                                 ],
-                                         title="Utilizatation and Availability by GPU type",
-                                         gridPos=GridPos(h=8, w=utils.WIDTH/2, x=utils.WIDTH/2, y=0),
-                                         unit=PERCENT_UNIT_FORMAT,
-                                         datasource=DATASOURCE
                                          )
            )
+
 def queSize():
     query = SqlTarget(rawSql="""
 SELECT
@@ -120,6 +95,23 @@ FROM
     hostname,
     max(time) as mytime
   FROM pbs_stathost
+  -- add 25200 for 7 hours (MST is 7 hours off from UTC)
+  WHERE time < to_timestamp($__unixEpochTo()+25200) AND time > to_timestamp($__unixEpochFrom()+25200) AND hostname != ''
+  GROUP BY hostname
+  ) as myquery
+  INNER JOIN pbs_stathost on pbs_stathost.time=myquery.mytime AND pbs_stathost.hostname=myquery.hostname
+WHERE 
+  state !~ '^(free|job-busy|resv-exclusive|job-exclusive)$' OR 
+  mytime < to_timestamp($__unixEpochTo()+25200-(5*60))'''
+    oldSql='''SELECT
+  myquery.hostname,
+  pbs_stathost.state,
+  myquery.mytime as time
+FROM
+  (SELECT
+    hostname,
+    max(time) as mytime
+  FROM pbs_stathost
   WHERE time < to_timestamp($__unixEpochTo()) AND time > to_timestamp($__unixEpochFrom()) AND hostname != ''
   GROUP BY hostname
   ) as myquery
@@ -127,24 +119,6 @@ FROM
 WHERE 
   state !~ '^(free|job-busy|resv-exclusive)$' OR 
   mytime < to_timestamp($__unixEpochTo()-(5*60))'''
-    nonJoin="""SELECT
-  hostname,
-  state,
-  mytime as time
-FROM
-  (SELECT
-    hostname,
-    max(time) as mytime,
-    state
-  FROM pbs_stathost
-  WHERE time < to_timestamp($__unixEpochTo()) AND time > to_timestamp($__unixEpochFrom()) AND hostname != ''
-  GROUP BY hostname, state
-  ORDER BY hostname, mytime DESC
-  ) as myquery
-WHERE 
-  state !~ '^(free|job-busy|resv-exclusive)$' OR 
-  mytime < to_timestamp($__unixEpochTo()-(5*60))
-"""
     return  Table(
         maxDataPoints=1000,
         targets=[SqlTarget(rawSql=newSql)],
@@ -162,12 +136,12 @@ def gpu():
         SqlTarget(rawSql=buildQuery(
            select="avg(utilization_gpu) as used",
            metric="nvidia_smi",
-           where="AND host ~ '^(crhtc\d\d|casper\d\d)$'"
+           where="AND host ~ '^r\d+i\d+n\d+)$'"
         )),
         SqlTarget(rawSql=buildQuery(
            select="100. * avg(memory_used)/avg(memory_total) as memory_used",
            metric="nvidia_smi",
-           where="AND host ~ '^(crhtc\d\d|casper\d\d)$'"
+           where="AND host ~ '^r\d+i\d+n\d+)$'"
         ))  
         ],
         title="GPU Allocated",
@@ -181,15 +155,15 @@ def cpu():
         SqlTarget(rawSql=buildQuery(
            select="100. * sum(resources_assigned_ncpus::float)/sum(resources_available_ncpus::float) AS allocated"
            )),
-        SqlTarget(rawSql=buildQuery(
-           select="100 - avg(usage_idle) AS used",
-           metric="cpu",
-           where="AND host ~ '^(crhtc\d\d|casper\d\d)$'"
-        ))
+    #    SqlTarget(rawSql=buildQuery(
+    #       select="100 - avg(usage_idle) AS used",
+    #       metric="cpu",
+    #       where="AND host ~ '^r\d+i\d+n\d+)$'"
+    #    ))
         ],
         title="CPU Allocated",
         unit=PERCENT_FORMAT,
-        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/3, x=utils.WIDTH/3, y=0),
+        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/2, x=0, y=0),
         datasource=DATASOURCE
     )
 
@@ -199,15 +173,15 @@ def mem():
            select="100. * avg(resources_assigned_mem::float/resources_available_mem::float) as allocated",
            where="AND resources_assigned_mem ~ '^\\d+$'",
            )),
-        SqlTarget(rawSql=buildQuery(
-           select="avg(used_percent) as used",
-           metric="mem",
-           where="AND host ~ '^(crhtc\d\d|casper\d\d)$'"
-           )),
+     #   SqlTarget(rawSql=buildQuery(
+     #      select="avg(used_percent) as used",
+     #      metric="mem",
+     #      where="AND host ~ '^r\d+i\d+n\d+)$'"
+     #      )),
         ],
         title="Memory Allocated",
         unit=PERCENT_FORMAT,
-        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/3, x=2*utils.WIDTH/3, y=0),
+        gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/2, x=utils.WIDTH/2, y=0),
         datasource=DATASOURCE
     )
     #utils.getTimeSeries(queries=[
@@ -233,7 +207,7 @@ def users():
         SqlTarget(rawSql=buildQuery(
             select="avg(n_users), host",
             metric="system",
-            where="AND host ~ '^casper-login\d$'",
+            where="AND host ~ '^cheyenne\d$'",
             groupby= ", host",
         ))],
         title="Users logged in",
@@ -272,7 +246,7 @@ def infra_cpu():
            select="100 - avg(usage_idle) AS used, host",
            metric="cpu",
            groupby="host",
-           where="AND host !~ '^(crhtc\d\d|casper\d\d)$'"
+           where="AND host ~ '^cheyenne\d$'"
         ))
         ],
         title="CPU Used",
@@ -288,7 +262,7 @@ def infra_mem():
 #  host
 #FROM mem
 #WHERE
-#  $__timeFilter("time") AND host !~ '^(crhtc\d\d|casper\d\d)$'
+#  $__timeFilter("time") AND host !~ '^(crhtc\d\d|cheyenne\d\d)$'
 #GROUP BY 1, host
 #ORDER BY 1"""
     return utils.getTimeSeries(queries=[
@@ -296,7 +270,7 @@ def infra_mem():
             select="avg(used_percent) as used, host",
             metric="mem",
             groupby= "host",
-            where="host !~ '^(crhtc\d\d|casper\d\d)$'",
+            where="host ~ '^cheyenne\d$'",
             ),
         ),
         ],
@@ -311,38 +285,37 @@ def dashboard():
     overview = RowPanel(
         title = "Overview",
         collapsed = True,
-        panels=[*availUtil(), queSize(), badNodes()],
+        panels=[availUtil(), queSize(), badNodes()],
         gridPos=GridPos(h=2*utils.HEIGHT, w=utils.WIDTH, x=0, y=0)
     )
 
     resources = RowPanel(
         title = "Compute",
         collapsed = True,
-        panels=[gpu(), cpu(), mem()],
+        panels=[cpu(), mem()],
         gridPos=GridPos(h=2*utils.HEIGHT, w=utils.WIDTH, x=0, y=2*utils.HEIGHT)
     )
 
-    infra = RowPanel(
-        title = "Infra",
-        collapsed = True,
-        panels=[users(), infra_mem(), infra_cpu(), disk()],
-        gridPos=GridPos(h=2*utils.HEIGHT, w=utils.WIDTH, x=0, y=4*utils.HEIGHT)
-    )
+    #infra = RowPanel(
+    #    title = "Infra",
+    #    collapsed = True,
+    #    panels=[users(), infra_mem(), infra_cpu(), disk()],
+    #    gridPos=GridPos(h=2*utils.HEIGHT, w=utils.WIDTH, x=0, y=4*utils.HEIGHT)
+    #)
 
     return Dashboard(
-        title="Casper",
-        description="Casper dashboard",
+        title="Cheyenne",
+        description="Cheyenne dashboard",
         time=utils.INTERVAL,
-        refresh='10m',
+        refresh='5m',
         sharedCrosshair=True,
         tags=[
             'generated',
-            'casper'
+            'cheyenne'
         ],
         timezone="browser",
         panels=[ 
             overview,
             resources,
-            infra
         ],
     ).auto_panel_ids()
