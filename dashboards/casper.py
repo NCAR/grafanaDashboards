@@ -111,26 +111,43 @@ ORDER BY time
                                          )
 
 def badNodes():
-    return  Table(
-        maxDataPoints=1000,
-        targets=[SqlTarget(rawSql="""
-SELECT
-  hostname,
-  state,
-  time
+    newSql='''SELECT
+  myquery.hostname,
+  pbs_stathost.state,
+  myquery.mytime as time
 FROM
   (SELECT
     DISTINCT ON (hostname) hostname,
-    state,
-    max(time) as "time"
+    max(time) as mytime
   FROM pbs_stathost
+  WHERE time < to_timestamp($__unixEpochTo()) AND time > to_timestamp($__unixEpochFrom()) AND hostname != ''
+  GROUP BY hostname
+  ) as myquery
+  INNER JOIN pbs_stathost on pbs_stathost.time=myquery.mytime AND pbs_stathost.hostname=myquery.hostname
+WHERE 
+  state !~ '^(free|job-busy|resv-exclusive)$' OR 
+  mytime < to_timestamp($__unixEpochTo()-(5*60))'''
+    nonJoin="""SELECT
+  hostname,
+  state,
+  mytime as time
+FROM
+  (SELECT
+    hostname,
+    max(time) as mytime,
+    state
+  FROM pbs_stathost
+  WHERE time < to_timestamp($__unixEpochTo()) AND time > to_timestamp($__unixEpochFrom()) AND hostname != ''
   GROUP BY hostname, state
-  ORDER BY hostname, 3 DESC
+  ORDER BY hostname, mytime DESC
   ) as myquery
 WHERE 
   state !~ '^(free|job-busy|resv-exclusive)$' OR 
-  time < to_timestamp($__unixEpochTo()-(5*60))
-""")],
+  mytime < to_timestamp($__unixEpochTo()-(5*60))
+"""
+    return  Table(
+        maxDataPoints=1000,
+        targets=[SqlTarget(rawSql=newSql)],
         dataSource=DATASOURCE,
         title="bad nodes",
         gridPos=GridPos(h=utils.HEIGHT, w=utils.WIDTH/2, x=utils.WIDTH/2, y=utils.HEIGHT)
