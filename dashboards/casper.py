@@ -24,11 +24,41 @@ ORDER BY 1
 
 
 def availUtil():
-    availSelect = """avg(CASE when state~* '(free|resv|job)' THEN 1. ELSE 0. END) as "Avail" """
-    utilSelect = """sum(CASE when jobs!='' THEN 1. ELSE 0. END)/count(state) as "Util" """
+    query='''SELECT
+    myquery.mytime AS "time",
+    avg(metric) as {metric}
+FROM
+    (SELECT time_bucket_gapfill('10 minute', time, '${{__from:date}}', '${{__to:date}}') as mytime,
+    COALESCE({select}, 0) AS metric
+    FROM pbs_stathost
+    WHERE time BETWEEN '${{__from:date}}' and '${{__to:date}}'
+    GROUP BY mytime
+    ) as myquery
+GROUP BY "time"
+ORDER BY "time";
+'''
+    gpuQuery='''SELECT
+    myquery.mytime AS "time",
+    avg(metric) as {metric},
+    resources_available_gpu_model
+FROM
+    (SELECT time_bucket_gapfill('10 minute', time, '${{__from:date}}', '${{__to:date}}') as mytime,
+    COALESCE({select}, 0) AS metric,
+    resources_available_gpu_model
+    FROM pbs_stathost
+    WHERE time BETWEEN '${{__from:date}}' and '${{__to:date}}'
+    GROUP BY mytime, resources_available_gpu_model
+    ) as myquery
+GROUP BY "time", resources_available_gpu_model
+ORDER BY "time";
+'''
+    util = query.format(metric='util', select='''sum(CASE when jobs!='' THEN 1. ELSE 0. END)/count(state)''')
+    avail = query.format(metric='avail', select='''avg(CASE when state ~* '(free|resv|job)' THEN 1. ELSE 0. END)''') 
+    utilgpu = gpuQuery.format(metric='util', select='''sum(CASE when jobs!='' THEN 1. ELSE 0. END)/count(state)''')
+    availgpu = gpuQuery.format(metric='avail', select='''avg(CASE when state ~* '(free|resv|job)' THEN 1. ELSE 0. END)''') 
     return (utils.getTimeSeriesWithLegend(queries=[
-                                                  SqlTarget(rawSql=buildQuery(availSelect)),
-                                                  SqlTarget(rawSql=buildQuery(utilSelect))
+                                                  SqlTarget(rawSql=avail),
+                                                  SqlTarget(rawSql=util)
                                                  ],
                                          title="Utilizatation and Availability",
                                          gridPos=GridPos(h=8, w=utils.WIDTH/2, x=0, y=0),
@@ -36,8 +66,8 @@ def availUtil():
                                          datasource=DATASOURCE
                                          ),
             utils.getTimeSeriesWithLegend(queries=[
-                                                  SqlTarget(rawSql=buildQuery(select = availSelect + ", resources_available_gpu_model", groupby=", resources_available_gpu_model")),
-                                                  SqlTarget(rawSql=buildQuery(select=utilSelect + ", resources_available_gpu_model", groupby=", resources_available_gpu_model"))
+                                                  SqlTarget(rawSql=availgpu),
+                                                  SqlTarget(rawSql=utilgpu)
                                                  ],
                                          title="Utilizatation and Availability by GPU type",
                                          gridPos=GridPos(h=8, w=utils.WIDTH/2, x=utils.WIDTH/2, y=0),
