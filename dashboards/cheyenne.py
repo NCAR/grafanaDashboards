@@ -37,11 +37,27 @@ FROM
 GROUP BY "time"
 ORDER BY "time";
 '''
-    util = query.format(metric='util', select='''sum(CASE when jobs!='' THEN 1. ELSE 0. END)/count(state)''')
+    actualUtil='''SELECT
+  myquery.mytime as "time",
+  avg(metric) as util_actual
+FROM
+  (SELECT
+    time_bucket_gapfill('1 minute', time, '${__from:date}', '${__to:date}') as mytime,
+    COALESCE(avg(GREATEST(resources_assigned_mem::float/resources_available_mem::float,
+            resources_assigned_ncpus::float/resources_available_ncpus::float,
+            CASE when state ~* 'exclusive' THEN 1. ELSE 0. END)), 0) as metric
+    FROM pbs_stathost
+    WHERE
+            $__timeFilter(time)
+    GROUP BY mytime, hostname) myquery
+GROUP BY time'''
+ 
+    util = query.format(metric='util_nsf', select='''sum(CASE when jobs!='' THEN 1. ELSE 0. END)/count(state)''')
     avail = query.format(metric='avail', select='''avg(CASE when state ~* '(free|resv|job)' THEN 1. ELSE 0. END)''') 
     return (utils.getTimeSeriesWithLegend(queries=[
                                                   SqlTarget(rawSql=avail),
-                                                  SqlTarget(rawSql=util)
+                                                  SqlTarget(rawSql=util),
+                                                  SqlTarget(rawSql=actualUtil)
                                                  ],
                                          title="Utilizatation and Availability",
                                          gridPos=GridPos(h=8, w=utils.WIDTH/2, x=0, y=0),
